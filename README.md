@@ -3,10 +3,14 @@
 [![PyPI version](https://badge.fury.io/py/django-api-mixins.svg)](https://badge.fury.io/py/django-api-mixins)
 [![PyPI](https://img.shields.io/pypi/v/django-api-mixins)](https://pypi.org/project/django-api-mixins/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/pypi/pyversions/django-api-mixins)](https://pypi.org/project/django-api-mixins/)
+[![Django](https://img.shields.io/badge/Django-3.2%2B-blue)](https://www.djangoproject.com/)
 
-A collection of useful mixins for Django REST Framework ViewSets and APIViews to simplify common API patterns.
+**Django REST Framework API Mixins** - A collection of powerful, reusable mixins for Django REST Framework ViewSets and APIViews to simplify common API development patterns. Perfect for building REST APIs with Django.
 
 **📦 Available on PyPI**: [https://pypi.org/project/django-api-mixins/](https://pypi.org/project/django-api-mixins/)
+
+**Keywords**: Django REST Framework, DRF, Django API, ViewSets, APIViews, Mixins, Django Mixins, REST API, Serializers, Queryset Filtering
 
 ## Features
 
