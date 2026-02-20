@@ -5,14 +5,31 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "django-api-mixins"
 version = "0.1.1"
-description = "A collection of useful mixins for Django REST Framework ViewSets and APIViews"
+description = "Django REST Framework mixins for ViewSets and APIViews - APIMixin, ModelMixin, RelationshipFilterMixin, RoleBasedFilterMixin. Simplify Django API development with reusable mixins."
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
     {name = "Subhransu Das", email = "subhransud525@gmail.com"},
 ]
-keywords = ["django", "django-rest-framework", "drf", "mixins", "api", "viewsets"]
+keywords = [
+    "django",
+    "django-rest-framework",
+    "drf",
+    "django-api",
+    "mixins",
+    "api",
+    "viewsets",
+    "apiview",
+    "rest-api",
+    "django-mixins",
+    "django-api-mixins",
+    "serializer",
+    "queryset",
+    "filtering",
+    "role-based",
+    "django-filters",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
