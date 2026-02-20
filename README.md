@@ -1,6 +1,12 @@
 # django-api-mixins
 
+[![PyPI version](https://badge.fury.io/py/django-api-mixins.svg)](https://badge.fury.io/py/django-api-mixins)
+[![PyPI](https://img.shields.io/pypi/v/django-api-mixins)](https://pypi.org/project/django-api-mixins/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A collection of useful mixins for Django REST Framework ViewSets and APIViews to simplify common API patterns.
+
+**📦 Available on PyPI**: [https://pypi.org/project/django-api-mixins/](https://pypi.org/project/django-api-mixins/)
 
 ## Features
 
@@ -259,3 +265,15 @@ MIT License - see LICENSE file for details.
 ## Support
 
 For issues, questions, or contributions, please visit the [GitHub repository](https://github.com/subhrans/django-api-mixins).
+
+## PyPI
+
+This package is published on PyPI and can be installed via pip:
+
+```bash
+pip install django-api-mixins
+```
+
+**PyPI Project Page**: [https://pypi.org/project/django-api-mixins/](https://pypi.org/project/django-api-mixins/)
+
+**Latest Version**: 0.1.1 (Released: Feb 20, 2026)

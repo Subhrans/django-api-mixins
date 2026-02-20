@@ -130,3 +130,6 @@ dmypy.json
 *.swp
 *.swo
 *~
+
+# Publishing guide (contains sensitive tokens)
+PUBLISHING.md
