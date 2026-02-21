@@ -226,6 +226,265 @@ class RoleBasedFilterMixin:
             queryset = self.apply_role_filter(queryset, user)
         return queryset
 
+class ModelFilterFieldsMixin:
+    """
+    View mixin that sets `filterset_fields` from a model that uses ModelMixin
+    (or any model with a `get_filter_fields()` class method).
+
+    **Requires**: `django-filter` package. Install with:
+        pip install django-filter
+    Or install with optional dependencies:
+        pip install django-api-mixins[filters]
+
+    Works with:
+      - rest_framework.views.APIView (set `model` on the view)
+      - rest_framework.generics.GenericAPIView / ListAPIView etc. (uses queryset.model)
+      - rest_framework.viewsets.ViewSet / ModelViewSet (uses queryset.model)
+
+    Only sets `filterset_fields` when the view does not already define it
+    (so you can still set filterset_fields explicitly to override).
+
+    Usage:
+
+        # ViewSet / GenericAPIView: filter fields come from queryset.model
+        class UnitViewSet(ModelFilterFieldsMixin, ModelViewSet):
+            queryset = Unit.objects.all()
+            serializer_class = UnitSerializer
+            # filterset_fields auto-set from Unit.get_filter_fields()
+
+        # APIView: set model so the mixin can resolve filter fields
+        class UnitListAPIView(ModelFilterFieldsMixin, APIView):
+            model = Unit
+            def get_queryset(self):
+                return Unit.objects.all()
+            ...
+
+        # Optional: use a different model for filter fields than the queryset model
+        class MyViewSet(ModelFilterFieldsMixin, ModelViewSet):
+            queryset = SomeProxy.objects.all()
+            filterset_model = Unit  # use Unit.get_filter_fields()
+    """
+
+    filterset_model = None  # optional: use this model for filter fields instead of queryset.model
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Check for django-filter dependency
+        try:
+            import django_filters
+        except ImportError:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                f"{cls.__name__} uses ModelFilterFieldsMixin which requires 'django-filter' package. "
+                "Install it with: pip install django-filter\n"
+                "Or install with optional dependencies: pip install django-api-mixins[filters]"
+            )
+        super().__init_subclass__(**kwargs)
+        model = getattr(cls, "model", None)
+        if model is None:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                f"{cls.__name__} uses ModelFilterFieldsMixin but does not set "
+                "'model'. Set model = YourModel on the view so the mixin can resolve filter fields."
+            )
+        get_filter_fields = getattr(model, "get_filter_fields", None)
+        if not callable(get_filter_fields):
+            return
+        # Set filterset_fields on the view *class* so DjangoFilterBackend and (optionally)
+        # drf-spectacular see them. Skip if the subclass already defines filterset_fields.
+        if "filterset_fields" not in cls.__dict__:
+            cls.filterset_fields = get_filter_fields()
+
+
+    def _set_filterset_fields_from_model(self, model):
+        """Set self.filterset_fields from model.get_filter_fields() if the model supports it."""
+        if model is None:
+            return
+        get_filter_fields = getattr(model, "get_filter_fields", None)
+        if not callable(get_filter_fields):
+            return
+        if "filterset_fields" in type(self).__dict__:
+            return
+        self.filterset_fields = get_filter_fields()
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        model = self.filterset_model if self.filterset_model is not None else getattr(queryset, "model", None)
+        if model is not None:
+            self._set_filterset_fields_from_model(model)
+        return queryset
+
+    def get_filter_backends(self):
+        """Return the list of filter backend classes. For APIView; GenericAPIView overrides this."""
+        # Ensure django-filter is available
+        try:
+            from django_filters.rest_framework import DjangoFilterBackend
+        except ImportError:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                f"{self.__class__.__name__} uses ModelFilterFieldsMixin which requires 'django-filter' package. "
+                "Install it with: pip install django-filter\n"
+                "Or install with optional dependencies: pip install django-api-mixins[filters]"
+            )
+        from rest_framework.settings import api_settings
+        return getattr(self, "filter_backends", None) or api_settings.DEFAULT_FILTER_BACKENDS or []
+
+    def filter_queryset(self, queryset):
+        """Apply filter backends to the queryset. For APIView; GenericAPIView overrides this."""
+        for backend in self.get_filter_backends():
+            queryset = backend().filter_queryset(self.request, queryset, self)
+        return queryset
+
+
+class OpenAPIFilterParametersMixin:
+    """
+    Plug-and-play mixin: injects OpenAPI filter parameters for plain APIView
+    so Swagger (drf-spectacular) shows the same filter query params as
+    GenericAPIView/ViewSet.
+
+    **Requires**: Both `django-filter` and `drf-spectacular` packages. Install with:
+        pip install django-filter drf-spectacular
+    Or install with optional dependencies:
+        pip install django-api-mixins[all]
+
+    Use together with ModelFilterFieldsMixin when you want filter params in docs
+    for APIView. For GenericAPIView/ViewSet this mixin is a no-op (Spectacular
+    already adds params). Requires drf-spectacular. Omit this mixin if you
+    don't need filter params in OpenAPI or stop using Spectacular.
+
+    Usage (plain APIView only; set model on the view):
+
+        class UnitListAPIView(OpenAPIFilterParametersMixin, ModelFilterFieldsMixin, APIView):
+            model = Unit  # required
+            ...
+
+        # Without Swagger params (e.g. no drf-spectacular): use only ModelFilterFieldsMixin
+        class UnitListAPIView(ModelFilterFieldsMixin, APIView):
+            model = Unit
+            ...
+    """
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        from rest_framework.generics import GenericAPIView
+        if GenericAPIView in cls.__mro__:
+            return
+        
+        # Check for django-filter dependency
+        try:
+            from django_filters.rest_framework import DjangoFilterBackend
+        except ImportError:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                f"{cls.__name__} uses OpenAPIFilterParametersMixin which requires 'django-filter' package. "
+                "Install it with: pip install django-filter\n"
+                "Or install with optional dependencies: pip install django-api-mixins[filters]"
+            )
+        
+        # Check for drf-spectacular dependency
+        try:
+            from drf_spectacular.utils import extend_schema, extend_schema_view
+        except ImportError:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                f"{cls.__name__} uses OpenAPIFilterParametersMixin which requires 'drf-spectacular' package. "
+                "Install it with: pip install drf-spectacular\n"
+                "Or install with optional dependencies: pip install django-api-mixins[spectacular] or django-api-mixins[all]"
+            )
+        
+        model = getattr(cls, "model", None)
+        if model is None:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                f"{cls.__name__} uses OpenAPIFilterParametersMixin but does not set "
+                "'model'. Set model = YourModel on the view so the mixin can resolve filter fields for OpenAPI."
+            )
+        # So get() can apply filtering without the view defining filter_backends
+        if "filter_backends" not in cls.__dict__:
+            cls.filter_backends = [DjangoFilterBackend]
+        
+        params = OpenAPIFilterParametersMixin._build_openapi_filter_parameters(model)
+        if params:
+            # Attach to GET so Spectacular shows params on the correct operation (APIView has no "list" action)
+            extend_schema_view(get=extend_schema(parameters=params))(cls)
+        params = OpenAPIFilterParametersMixin._build_openapi_filter_parameters(model)
+        if params:
+            # Attach to GET so Spectacular shows params on the correct operation (APIView has no "list" action)
+            extend_schema_view(get=extend_schema(parameters=params))(cls)
+    
+    def get_filter_backends(self):
+        """Return the list of filter backend classes. For APIView; GenericAPIView overrides this."""
+        from rest_framework.settings import api_settings
+        return api_settings.DEFAULT_FILTER_BACKENDS or []
+
+    @staticmethod
+    def _build_openapi_filter_parameters(model):
+        """
+        Build OpenApiParameter list from model using the same path as Spectacular
+        for GenericAPIView/ViewSet: call DjangoFilterExtension.get_schema_operation_parameters()
+        directly so we get identical params and bypass _is_list_view().
+        Returns [] if drf-spectacular is unavailable or the call fails.
+        """
+        get_filter_fields = getattr(model, "get_filter_fields", None)
+        if not callable(get_filter_fields):
+            return []
+        filterset_fields = get_filter_fields()
+        if not filterset_fields:
+            return []
+
+        from rest_framework.settings import api_settings
+        filter_backends = api_settings.DEFAULT_FILTER_BACKENDS or []
+
+        try:
+            from rest_framework.generics import ListAPIView
+            from django_filters.rest_framework import DjangoFilterBackend
+            from drf_spectacular.extensions import OpenApiFilterExtension
+        except ImportError as e:
+            # This should not happen if __init_subclass__ checks passed, but handle gracefully
+            return []
+
+        try:
+            if not hasattr(model, "objects"):
+                return []
+            queryset = model.objects.none()
+            temp_view = type(
+                "_TempFilterSchemaView",
+                (ListAPIView,),
+                {
+                    "queryset": queryset,
+                    "filterset_fields": filterset_fields,
+                    "filter_backends": filter_backends,
+                    "serializer_class": None,
+                },
+            )
+            backend = DjangoFilterBackend()
+            extension = OpenApiFilterExtension.get_match(backend)
+            if extension is None:
+                raise ValueError("No extension match")
+            # AutoSchema(view=..., path=..., method=...) fails in some versions (ViewInspector API).
+            # Pass a minimal object with .view so the extension can build params from the filterset.
+            class _ViewContext:
+                view = temp_view
+            raw_params = extension.get_schema_operation_parameters(_ViewContext())
+            if not raw_params:
+                return []
+            # Extension returns OpenAPI-style dicts; extend_schema expects OpenApiParameter.
+            from drf_spectacular.utils import OpenApiParameter
+            return [
+                OpenApiParameter(
+                    name=p["name"],
+                    type=p.get("schema"),
+                    location=OpenApiParameter.QUERY,
+                    description=p.get("description", ""),
+                    required=p.get("required", False),
+                )
+                for p in raw_params
+            ]
+        except (TypeError, ValueError, Exception):
+            pass
+        return []
+
+
 
 class ModelMixin:
     @classmethod
