@@ -16,20 +16,40 @@
 
 - **APIMixin**: Dynamic serializer selection based on action (create, update, list, retrieve)
 - **ModelMixin**: Automatic filter field generation for Django models
+- **ModelFilterFieldsMixin**: Automatically sets `filterset_fields` from models with `get_filter_fields()` (requires `django-filter`)
+- **OpenAPIFilterParametersMixin**: Adds OpenAPI/Swagger filter parameters for APIView (requires `django-filter` and `drf-spectacular`)
 - **RelationshipFilterMixin**: Automatic filtering for reverse relationships and direct fields
 - **RoleBasedFilterMixin**: Role-based queryset filtering for multi-tenant applications
 
 ## Installation
 
+**Basic installation:**
 ```bash
 pip install django-api-mixins
 ```
 
+**With optional dependencies:**
+```bash
+# For ModelFilterFieldsMixin (requires django-filter)
+pip install django-api-mixins[filters]
+
+# For OpenAPIFilterParametersMixin (requires drf-spectacular)
+pip install django-api-mixins[spectacular]
+
+# Install all optional dependencies
+pip install django-api-mixins[all]
+```
+
 ## Requirements
 
+**Core dependencies (required):**
 - Python 3.8+
 - Django 3.2+
 - Django REST Framework 3.12+
+
+**Optional dependencies:**
+- `django-filter>=23.0` - Required for `ModelFilterFieldsMixin` and `OpenAPIFilterParametersMixin`
+- `drf-spectacular>=0.26.0` - Required for `OpenAPIFilterParametersMixin`
 
 ## Quick Start
 
@@ -103,6 +123,80 @@ filter_fields = Product.get_filter_fields_for_related_model('category')
 filter_fields = Order.get_filter_fields_for_foreign_fields('product')
 # Returns: {'product__name': [...], 'product__price': [...], ...}
 ```
+
+### ModelFilterFieldsMixin
+
+**⚠️ Requires**: `django-filter` package. Install with `pip install django-filter` or `pip install django-api-mixins[filters]`
+
+Automatically sets `filterset_fields` from a model that uses `ModelMixin` (or any model with a `get_filter_fields()` class method). Works with APIView, GenericAPIView, and ViewSets.
+
+```python
+from rest_framework import viewsets
+from django_filters.rest_framework import DjangoFilterBackend
+from django_api_mixins import ModelFilterFieldsMixin
+
+# ViewSet / GenericAPIView: filter fields come from queryset.model
+class UnitViewSet(ModelFilterFieldsMixin, viewsets.ModelViewSet):
+    queryset = Unit.objects.all()  # Unit must have ModelMixin or get_filter_fields()
+    serializer_class = UnitSerializer
+    filter_backends = [DjangoFilterBackend]
+    # filterset_fields auto-set from Unit.get_filter_fields()
+
+# APIView: set model so the mixin can resolve filter fields
+from rest_framework.views import APIView
+
+class UnitListAPIView(ModelFilterFieldsMixin, APIView):
+    model = Unit  # required for APIView
+    filter_backends = [DjangoFilterBackend]
+    
+    def get_queryset(self):
+        return Unit.objects.all()
+    
+    def get(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        # ... rest of your logic
+
+# Optional: use a different model for filter fields than the queryset model
+class MyViewSet(ModelFilterFieldsMixin, viewsets.ModelViewSet):
+    queryset = SomeProxy.objects.all()
+    filterset_model = Unit  # use Unit.get_filter_fields() instead of SomeProxy
+    filter_backends = [DjangoFilterBackend]
+```
+
+**Note**: If `django-filter` is not installed, you'll get a clear error message with installation instructions when you try to use this mixin.
+
+### OpenAPIFilterParametersMixin
+
+**⚠️ Requires**: Both `django-filter` and `drf-spectacular` packages. Install with `pip install django-filter drf-spectacular` or `pip install django-api-mixins[all]`
+
+Adds OpenAPI/Swagger filter parameters for plain APIView so Swagger shows the same filter query params as GenericAPIView/ViewSet. For GenericAPIView/ViewSet this mixin is a no-op (Spectacular already adds params).
+
+```python
+from rest_framework.views import APIView
+from django_filters.rest_framework import DjangoFilterBackend
+from django_api_mixins import OpenAPIFilterParametersMixin, ModelFilterFieldsMixin
+
+# With Swagger/OpenAPI filter parameters
+class UnitListAPIView(OpenAPIFilterParametersMixin, ModelFilterFieldsMixin, APIView):
+    model = Unit  # required
+    filter_backends = [DjangoFilterBackend]
+    
+    def get_queryset(self):
+        return Unit.objects.all()
+    
+    def get(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        # ... rest of your logic
+        # Filter parameters will appear in Swagger/OpenAPI docs
+
+# Without Swagger params: use only ModelFilterFieldsMixin
+class UnitListAPIView(ModelFilterFieldsMixin, APIView):
+    model = Unit
+    filter_backends = [DjangoFilterBackend]
+    # Filtering works, but params won't appear in OpenAPI docs
+```
+
+**Note**: If `django-filter` or `drf-spectacular` is not installed, you'll get a clear error message with installation instructions when you try to use this mixin.
 
 ### RelationshipFilterMixin
 
@@ -235,13 +329,16 @@ You can combine multiple mixins:
 
 ```python
 from rest_framework import viewsets
+from django_filters.rest_framework import DjangoFilterBackend
 from django_api_mixins import (
     APIMixin,
+    ModelFilterFieldsMixin,
     RelationshipFilterMixin,
     RoleBasedFilterMixin,
 )
 
 class OrderViewSet(
+    ModelFilterFieldsMixin,  # Auto-set filterset_fields from model
     RelationshipFilterMixin,
     RoleBasedFilterMixin,
     APIMixin,
@@ -250,6 +347,7 @@ class OrderViewSet(
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
     create_serializer_class = OrderCreateSerializer
+    filter_backends = [DjangoFilterBackend]
     
     role_filter_field = 'operator_type'
     reverse_relation_filters = ['customer__name', 'product__category__name']
@@ -257,6 +355,10 @@ class OrderViewSet(
 ```
 
 **Note**: The order of mixins matters! Place filtering mixins before the ViewSet class.
+
+**Optional Dependencies**: If using `ModelFilterFieldsMixin` or `OpenAPIFilterParametersMixin`, make sure to install the required dependencies:
+- `ModelFilterFieldsMixin` requires: `django-filter`
+- `OpenAPIFilterParametersMixin` requires: `django-filter` and `drf-spectacular`
 
 ## Contributing
 
@@ -280,4 +382,4 @@ pip install django-api-mixins
 
 **PyPI Project Page**: [https://pypi.org/project/django-api-mixins/](https://pypi.org/project/django-api-mixins/)
 
-**Latest Version**: 0.1.1 (Released: Feb 20, 2026)
+**Latest Version**: 0.1.2 (Released: Feb 21, 2026)
