@@ -74,6 +74,8 @@ Issues = "https://github.com/subhrans/django-api-mixins/issues"
 
 [tool.setuptools]
 packages = ["django_api_mixins"]
+# Avoid License-File in METADATA (PEP 639); PyPI/twine may reject it. We use license = {text = "MIT"} instead.
+license-files = []
 
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.md"]
