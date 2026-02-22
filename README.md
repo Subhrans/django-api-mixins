@@ -362,7 +362,45 @@ class OrderViewSet(
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Here’s how to contribute:
+
+1. **Fork the repository** on GitHub and clone your fork locally:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/django-api-mixins.git
+   cd django-api-mixins
+   ```
+
+2. **Create a virtual environment** and install the package in editable mode with dev dependencies:
+   ```bash
+   python -m venv venv
+   # On Windows: venv\Scripts\activate
+   # On macOS/Linux: source venv/bin/activate
+   pip install -e ".[all]"
+   pip install -r requirements-dev.txt   # if present
+   ```
+
+3. **Create a branch** for your changes:
+   ```bash
+   git checkout -b feature/your-feature-name
+   # or: git checkout -b fix/your-bugfix-name
+   ```
+
+4. **Make your changes** — keep code style consistent and add/update tests as needed.
+
+5. **Run tests** (and linting, if configured):
+   ```bash
+   pytest
+   # or: python -m pytest
+   ```
+
+6. **Commit and push** to your fork:
+   ```bash
+   git add .
+   git commit -m "Brief description of your change"
+   git push origin feature/your-feature-name
+   ```
+
+7. **Open a Pull Request** from your branch to the main repository’s default branch. Describe what you changed and why; link any related issues.
 
 ## License
 
@@ -382,4 +420,4 @@ pip install django-api-mixins
 
 **PyPI Project Page**: [https://pypi.org/project/django-api-mixins/](https://pypi.org/project/django-api-mixins/)
 
-**Latest Version**: 0.1.2 (Released: Feb 21, 2026)
+**Latest Version**: 0.1.3 (Released: Feb 22, 2026)
