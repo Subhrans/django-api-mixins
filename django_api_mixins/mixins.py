@@ -237,12 +237,23 @@ class ModelFilterFieldsMixin:
         pip install django-api-mixins[filters]
 
     Works with:
-      - rest_framework.views.APIView (set `model` on the view)
+      - rest_framework.views.APIView (set `model` on the view; get_queryset is auto-provided as model.objects.all() if not defined)
       - rest_framework.generics.GenericAPIView / ListAPIView etc. (uses queryset.model)
       - rest_framework.viewsets.ViewSet / ModelViewSet (uses queryset.model)
 
     Only sets `filterset_fields` when the view does not already define it
     (so you can still set filterset_fields explicitly to override).
+    When used with APIView and the view does not define get_queryset(), the mixin
+    provides get_queryset() returning model.objects.all().
+    Use get_filtered_queryset() in get() for the list branch instead of
+    filter_queryset(self.get_queryset()).
+    A default get(request, *args, **kwargs) is provided: if a detail key (e.g. pk)
+    is present in URL kwargs, it returns the single object (404 if not found);
+    otherwise it returns the filtered list (no pagination). Override get() to add
+    pagination or custom behavior; call super().get(request, *args, **kwargs) for
+    the default list or detail response.
+    Detail lookup uses lookup_url_kwarg (default 'pk') and lookup_field (default 'pk').
+    Set detail_not_found_message to customize the 404 response body (string -> {"error": "..."}).
 
     Usage:
 
@@ -252,12 +263,12 @@ class ModelFilterFieldsMixin:
             serializer_class = UnitSerializer
             # filterset_fields auto-set from Unit.get_filter_fields()
 
-        # APIView: set model so the mixin can resolve filter fields
-        class UnitListAPIView(ModelFilterFieldsMixin, APIView):
+        # APIView: one get() handles both list (GET /units/) and detail (GET /units/<pk>/)
+        class UnitAPIView(ModelFilterFieldsMixin, APIView):
             model = Unit
-            def get_queryset(self):
-                return Unit.objects.all()
-            ...
+            serializer_class = UnitSerializer
+            # optional: detail_not_found_message = "Unit not found"
+            # optional: override get() to add pagination for the list branch
 
         # Optional: use a different model for filter fields than the queryset model
         class MyViewSet(ModelFilterFieldsMixin, ModelViewSet):
@@ -266,6 +277,9 @@ class ModelFilterFieldsMixin:
     """
 
     filterset_model = None  # optional: use this model for filter fields instead of queryset.model
+    lookup_url_kwarg = "pk"
+    lookup_field = "pk"
+    detail_not_found_message = "Not found"
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -308,7 +322,17 @@ class ModelFilterFieldsMixin:
         self.filterset_fields = get_filter_fields()
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        try:
+            queryset = super().get_queryset()
+        except AttributeError:
+            # No get_queryset in parent (e.g. plain APIView); use view.model so developers don't have to define it
+            model = getattr(self, "model", None)
+            if model is None:
+                raise ImproperlyConfigured(
+                    f"{self.__class__.__name__} must set 'model' when using ModelFilterFieldsMixin with APIView "
+                    "and not defining get_queryset()."
+                )
+            queryset = model.objects.all()
         model = self.filterset_model if self.filterset_model is not None else getattr(queryset, "model", None)
         if model is not None:
             self._set_filterset_fields_from_model(model)
