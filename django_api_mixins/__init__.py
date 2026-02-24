@@ -14,7 +14,7 @@ from .mixins import (
 )
 from .lookups import FieldLookup
 
-__version__ = "0.1.2"
+__version__ = "0.1.5"
 __all__ = [
     "APIMixin",
     "ModelMixin",
