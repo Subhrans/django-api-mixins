@@ -14,9 +14,12 @@ from django.db.models import (
     DecimalField,
     DurationField, FileField, JSONField
 )
-from django.core.exceptions import FieldDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, ImproperlyConfigured
 from django.db.models import Q
 from django.db.models.fields.related import ForeignKey
+from django.shortcuts import get_object_or_404
+from rest_framework import status
+from rest_framework.response import Response
 
 from .lookups import FieldLookup
 
@@ -227,6 +230,249 @@ class RoleBasedFilterMixin:
         return queryset
 
 class ModelFilterFieldsMixin:
+    """
+    View mixin that requires `filterset_fields` to be defined on the view for filtering.
+
+    **Requires**: `django-filter` package and that the view defines `filterset_fields`, e.g.:
+        filterset_fields = ["id", "name"]
+
+    Install django-filter with:
+        pip install django-filter
+    Or install with optional dependencies:
+        pip install django-api-mixins[filters]
+
+    Works with:
+      - rest_framework.views.APIView (set `model` on the view; get_queryset is auto-provided as model.objects.all() if not defined)
+      - rest_framework.generics.GenericAPIView / ListAPIView etc. (uses queryset.model)
+      - rest_framework.viewsets.ViewSet / ModelViewSet (uses queryset.model)
+
+    When used with APIView and the view does not define get_queryset(), the mixin
+    provides get_queryset() returning model.objects.all().
+    Use get_filtered_queryset() in get() for the list branch instead of
+    filter_queryset(self.get_queryset()).
+    A default get(request, *args, **kwargs) is provided: if a detail key (e.g. pk)
+    is present in URL kwargs, it returns the single object (404 if not found);
+    otherwise it returns the filtered list (no pagination).
+    To override get() but reuse mixin behavior (e.g. add pagination for list only):
+      - For detail: return self.get_detail_response(request, *args, **kwargs)
+      - For list: return self.get_list_response(request, *args, **kwargs) or, after
+        paginating, return self.get_list_response(..., queryset=page) or wrap in
+        get_paginated_response(serializer.data).
+    Detail lookup uses lookup_url_kwarg (default 'pk') and lookup_field (default 'pk').
+    Set detail_not_found_message to customize the 404 response body (string -> {"error": "..."}).
+
+    Usage:
+
+        class UnitViewSet(ModelFilterFieldsMixin, ModelViewSet):
+            queryset = Unit.objects.all()
+            serializer_class = UnitSerializer
+            filterset_fields = ["id", "name"]
+
+        class UnitAPIView(ModelFilterFieldsMixin, APIView):
+            model = Unit
+            serializer_class = UnitSerializer
+            filterset_fields = ["id", "name"]
+            # optional: detail_not_found_message = "Unit not found"
+            # optional: override get() to add pagination for the list branch
+    """
+
+    filterset_model = None  # optional: use this model for filter fields instead of queryset.model
+    lookup_url_kwarg = "pk"
+    lookup_field = "pk"
+    detail_not_found_message = "Not found"
+
+    def _resolve_model(self, queryset=None):
+        """
+        Resolve model for filterset_fields.
+        Priority:
+            1. filterset_model
+            2. queryset.model
+            3. self.model (for APIView)
+        """
+        if self.filterset_model:
+            return self.filterset_model
+
+        if queryset is not None and hasattr(queryset, "model"):
+            return queryset.model
+
+        return getattr(self, "model", None)
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Check for django-filter dependency
+        try:
+            import django_filters
+        except ImportError:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                f"{cls.__name__} uses ModelFilterFieldsMixin which requires 'django-filter' package. "
+                "Install it with: pip install django-filter\n"
+                "Or install with optional dependencies: pip install django-api-mixins[filters]"
+            )
+        super().__init_subclass__(**kwargs)
+        
+        if "filterset_fields" not in cls.__dict__ or getattr(cls, "filterset_fields", None) is None:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                f"{cls.__name__} uses ModelFilterFieldsMixin but does not define 'filterset_fields'. "
+                "Set it on the view, e.g. filterset_fields = ['id', 'name']."
+            )
+
+
+    def get_queryset(self):
+        try:
+            queryset = super().get_queryset()
+        except AttributeError:
+            # No get_queryset in parent (e.g. plain APIView); use view.model so developers don't have to define it
+            model = getattr(self, "model", None)
+            queryset = getattr(self, "queryset", None)
+            if model is None and queryset is None:
+                raise ImproperlyConfigured(
+                    f"{self.__class__.__name__} must set either 'model' or queryset when using ModelFilterFieldsMixin with APIView "
+                    "and not defining get_queryset()."
+                )
+            if model and queryset is None:
+                queryset = model.objects.all()
+        return queryset
+
+    def get_filter_backends(self):
+        """Return the list of filter backend classes. For APIView; GenericAPIView overrides this."""
+        # Ensure django-filter is available
+        try:
+            from django_filters.rest_framework import DjangoFilterBackend
+        except ImportError:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                f"{self.__class__.__name__} uses ModelFilterFieldsMixin which requires 'django-filter' package. "
+                "Install it with: pip install django-filter\n"
+                "Or install with optional dependencies: pip install django-api-mixins[filters]"
+            )
+        from rest_framework.settings import api_settings
+        return getattr(self, "filter_backends", None) or api_settings.DEFAULT_FILTER_BACKENDS or []
+
+    def filter_queryset(self, queryset):
+        """Apply filter backends to the queryset. For APIView; GenericAPIView overrides this."""
+        for backend in self.get_filter_backends():
+            queryset = backend().filter_queryset(self.request, queryset, self)
+        return queryset
+
+    def get_filtered_queryset(self):
+        """
+        Return the base queryset with all filter backends applied.
+        Use this in get() (or other list handlers) instead of repeating
+        filter_queryset(self.get_queryset()).
+        """
+        return self.filter_queryset(self.get_queryset())
+
+    def get_object(self, pk=None):
+        """
+        Return the model instance for the given pk (from arg or URL kwargs).
+        Raises Http404 if not found. Used by get() for the detail branch.
+        """
+        if pk is None:
+            pk = self.kwargs.get(self.lookup_url_kwarg)
+        if pk is None:
+            from django.http import Http404
+            raise Http404(self.detail_not_found_message)
+        queryset = self.filter_queryset(self.get_queryset())
+        return get_object_or_404(queryset, **{self.lookup_field: pk})
+
+    def get_serializer_class(self):
+        """Resolve serializer_class for use in get_detail_response / get_list_response."""
+        serializer_class = getattr(self, "serializer_class", None)
+        if serializer_class is None and hasattr(self, "get_serializer_class"):
+            serializer_class = self.get_serializer_class()
+        if serializer_class is None:
+            raise ImproperlyConfigured(
+                f"{self.__class__.__name__} must set 'serializer_class' (or implement get_serializer_class) "
+                "for the default get() to work."
+            )
+        return serializer_class
+
+    def get_detail_data(self, request, *args, **kwargs):
+        """
+        Return (body, status_code) for the single-object (detail) GET.
+        Body is serialized data on success, or an error dict on 404.
+        Use get_detail_response() to get a Response, or call this and build Response yourself.
+        """
+        from django.http import Http404
+
+        serializer_class = self.get_serializer_class()
+        try:
+            obj = self.get_object(pk=kwargs.get(self.lookup_url_kwarg))
+        except Http404:
+            msg = self.detail_not_found_message
+            body = msg if isinstance(msg, dict) else {"error": msg}
+            return body, status.HTTP_404_NOT_FOUND
+        if hasattr(self, "get_serializer"):
+            serializer = self.get_serializer(obj)
+        else:
+            serializer = serializer_class(obj)
+        return serializer.data, status.HTTP_200_OK
+
+    # def get_detail_response(self, request, *args, **kwargs):
+    #     """
+    #     Return a Response for the single-object (detail) GET.
+    #     Uses get_detail_data(); returns 404 body if not found.
+    #     Override get() and call this for the detail branch to reuse mixin behavior.
+    #     """
+    #     body, status_code = self.get_detail_data(request, *args, **kwargs)
+    #     return Response(body, status=status_code)
+
+    def get_list_data(self, request, *args, queryset=None, **kwargs):
+        """
+        Return serialized list data (no Response).
+        If queryset is provided, use it (e.g. a paginated page); otherwise use get_filtered_queryset().
+        Use get_list_response() to get a Response, or call this and build Response yourself.
+        """
+        serializer_class = self.get_serializer_class()
+        if queryset is None:
+            queryset = self.get_filtered_queryset()
+        if hasattr(self, "get_serializer"):
+            serializer = self.get_serializer(queryset, many=True)
+        else:
+            serializer = serializer_class(queryset, many=True)
+        return serializer.data, status.HTTP_200_OK
+
+    # def get_list_response(self, request, *args, queryset=None, **kwargs):
+    #     """
+    #     Return a Response for the list GET (filtered queryset, serialized; no pagination).
+    #     If queryset is provided, use it (e.g. a paginated page); otherwise use get_filtered_queryset().
+    #     Override get() and call this for the list branch to reuse mixin behavior, optionally
+    #     after paginating: e.g. page = self.paginate_queryset(self.get_filtered_queryset());
+    #     return self.get_list_response(..., queryset=page) or wrap in get_paginated_response().
+    #     """
+    #     data, _status = self.get_list_data(request, *args, queryset=queryset, **kwargs)
+    #     return Response(data, status=_status)
+
+    # def get(self, request, *args, **kwargs):
+    #     """
+    #     List or detail GET: if lookup_url_kwarg (e.g. pk) is in kwargs, return
+    #     single object (404 if not found); else return filtered list. No pagination.
+    #     Override get() and delegate to get_detail_data() / get_list_data() to reuse
+    #     behavior (e.g. add pagination for list only).
+    #     """
+    #     pk = kwargs.get(self.lookup_url_kwarg)
+    #     if pk is not None:
+    #         data, status_code = self.get_detail_data(request, *args, **kwargs)
+    #         # return self.get_detail_response(request, *args, **kwargs)
+    #     data,status_code = self.get_list_data(request, *args, **kwargs)
+    #     return Response(data, status_code)
+    #     # return self.get_list_response(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        """
+        List or detail GET: if lookup_url_kwarg (e.g. pk) is in kwargs, return
+        single object (404 if not found); else return filtered list. No pagination.
+        Override get() and delegate to get_detail_data() / get_list_data() to reuse
+        behavior (e.g. add pagination for list only).
+        """
+        pk = kwargs.get(self.lookup_url_kwarg)
+        if pk is not None:
+            data, status_code = self.get_detail_data(request, *args, **kwargs)
+        else:
+            data,status_code = self.get_list_data(request, *args, **kwargs)
+        return Response(data, status_code)
     """
     View mixin that sets `filterset_fields` from a model that uses ModelMixin
     (or any model with a `get_filter_fields()` class method).

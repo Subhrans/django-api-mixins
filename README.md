@@ -40,6 +40,11 @@ pip install django-api-mixins[spectacular]
 pip install django-api-mixins[all]
 ```
 
+**Upgrade to the latest version:**
+```bash
+pip install --upgrade django-api-mixins
+```
+
 ## Requirements
 
 **Core dependencies (required):**
@@ -402,6 +407,15 @@ Contributions are welcome! Here’s how to contribute:
 
 7. **Open a Pull Request** from your branch to the main repository’s default branch. Describe what you changed and why; link any related issues.
 
+## Contributors
+
+<!-- Thanks to everyone who has contributed to this project: -->
+
+<!-- Add contributors here, e.g.:
+- [@username](https://github.com/username) - Description of contribution
+- [Jane Doe](https://github.com/janedoe) - Description of contribution
+-->
+
 ## License
 
 MIT License - see LICENSE file for details.
@@ -420,4 +434,4 @@ pip install django-api-mixins
 
 **PyPI Project Page**: [https://pypi.org/project/django-api-mixins/](https://pypi.org/project/django-api-mixins/)
 
-**Latest Version**: 0.1.3 (Released: Feb 22, 2026)
+**Latest Version**: 0.1.4 (Released: Feb 24, 2026)
