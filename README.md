@@ -6,18 +6,31 @@
 [![Python](https://img.shields.io/pypi/pyversions/django-api-mixins)](https://pypi.org/project/django-api-mixins/)
 [![Django](https://img.shields.io/badge/Django-3.2%2B-blue)](https://www.djangoproject.com/)
 
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/django-api-mixins?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/django-api-mixins)
+
 **Django REST Framework API Mixins** - A collection of powerful, reusable mixins for Django REST Framework ViewSets and APIViews to simplify common API development patterns. Perfect for building REST APIs with Django.
 
 **📦 Available on PyPI**: [https://pypi.org/project/django-api-mixins/](https://pypi.org/project/django-api-mixins/)
 
 **Keywords**: Django REST Framework, DRF, Django API, ViewSets, APIViews, Mixins, Django Mixins, REST API, Serializers, Queryset Filtering
 
+## Table of contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [FieldLookup Enum](#fieldlookup-enum)
+- [Combining Mixins](#combining-mixins)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Features
 
-- **APIMixin**: Dynamic serializer selection based on action (create, update, list, retrieve)
 - **ModelMixin**: Automatic filter field generation for Django models
 - **ModelFilterFieldsMixin**: Automatically sets `filterset_fields` from models with `get_filter_fields()` (requires `django-filter`)
 - **OpenAPIFilterParametersMixin**: Adds OpenAPI/Swagger filter parameters for APIView (requires `django-filter` and `drf-spectacular`)
+- **APIMixin**: Dynamic serializer selection based on action (create, update, list, retrieve)
 - **RelationshipFilterMixin**: Automatic filtering for reverse relationships and direct fields
 - **RoleBasedFilterMixin**: Role-based queryset filtering for multi-tenant applications
 
@@ -57,31 +70,6 @@ pip install --upgrade django-api-mixins
 - `drf-spectacular>=0.26.0` - Required for `OpenAPIFilterParametersMixin`
 
 ## Quick Start
-
-### APIMixin
-
-Use different serializers for different actions (create, update, list, retrieve):
-
-```python
-from rest_framework import viewsets
-from django_api_mixins import APIMixin
-
-class UserViewSet(APIMixin, viewsets.ModelViewSet):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer  # Default serializer
-    create_serializer_class = UserCreateSerializer  # For POST requests
-    update_serializer_class = UserUpdateSerializer  # For PUT/PATCH requests
-    list_serializer_class = UserListSerializer  # For GET list requests
-    retrieve_serializer_class = UserDetailSerializer  # For GET detail requests
-```
-
-The mixin also automatically handles list data in requests:
-
-```python
-# POST /api/users/
-# Body: [{"name": "User1"}, {"name": "User2"}]
-# Automatically sets many=True for list data
-```
 
 ### ModelMixin
 
@@ -135,40 +123,173 @@ filter_fields = Order.get_filter_fields_for_foreign_fields('product')
 
 Automatically sets `filterset_fields` from a model that uses `ModelMixin` (or any model with a `get_filter_fields()` class method). Works with APIView, GenericAPIView, and ViewSets.
 
+**You must set `model` on the view** so the mixin can resolve filter fields (e.g. `model = Unit`). For ViewSets, use the same model as your queryset.
+
+#### APIView: default `get()` — list and detail in one view
+
+When used with **APIView**, the mixin provides a default `get(request, *args, **kwargs)` so a single view can serve both list and detail:
+
+- **Detail**: If the URL includes the lookup key (default `pk`) in `kwargs` — e.g. `GET /units/5/` — the mixin returns the single object (serialized) or 404 if not found. Filtering still applies to the base queryset before fetching the object.
+- **List**: If the lookup key is not in `kwargs` — e.g. `GET /units/` — the mixin returns the filtered list (no pagination). Query params are applied via `django-filter` and `filterset_fields`.
+
+You must set `serializer_class` on the view for the default `get()` to work. Optionally set `detail_not_found_message` (default `"Not found"`), `lookup_url_kwarg` (default `"pk"`), and `lookup_field` (default `"pk"`).
+
+**Example: use the default `get()` (no override)**
+
+```python
+from rest_framework.views import APIView
+from django_filters.rest_framework import DjangoFilterBackend
+from django_api_mixins import ModelFilterFieldsMixin
+
+class UnitListDetailAPIView(ModelFilterFieldsMixin, APIView):
+    model = Unit  # required
+    serializer_class = UnitSerializer
+    filter_backends = [DjangoFilterBackend]
+    # Optional: detail_not_found_message = "Unit not found"
+
+    # Optional: override to customize queryset; otherwise mixin uses model.objects.all()
+    def get_queryset(self):
+        return Unit.objects.all()
+
+    # Do NOT override get() — mixin handles list and detail
+```
+
+- `GET /units/` → filtered list (e.g. `?name=foo` applied).
+- `GET /units/42/` → single unit with id 42, or 404.
+
+#### APIView: override `get()` for custom behavior
+
+You can override `get()` and still reuse the mixin's helpers:
+
+- **`get_filtered_queryset()`** — base queryset with all filter backends applied.
+- **`get_object(pk=None)`** — single instance by pk (from URL kwargs if `pk` omitted); raises `Http404` if not found.
+- **`get_detail_data(request, *args, **kwargs)`** — returns `(body, status_code)` for the detail response (serialized object or 404 body).
+- **`get_list_data(request, *args, queryset=None, **kwargs)`** — returns `(data, status_code)` for the list response; if `queryset` is passed (e.g. a paginated page), that is used instead of the full filtered queryset.
+
+**Example: add pagination for list only; detail unchanged**
+
+```python
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
+from django_filters.rest_framework import DjangoFilterBackend
+from django_api_mixins import ModelFilterFieldsMixin
+
+class UnitListDetailAPIView(ModelFilterFieldsMixin, APIView):
+    model = Unit
+    serializer_class = UnitSerializer
+    filter_backends = [DjangoFilterBackend]
+    pagination_class = PageNumberPagination
+
+    def get_queryset(self):
+        return Unit.objects.all()
+
+    def get(self, request, *args, **kwargs):
+        pk = kwargs.get(self.lookup_url_kwarg)  # default: 'pk'
+        if pk is not None:
+            # Detail: single object or 404
+            data, status_code = self.get_detail_data(request, *args, **kwargs)
+            return Response(data, status=status_code)
+        # List: paginate filtered queryset, then serialize
+        queryset = self.get_filtered_queryset()
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request)
+        if page is not None:
+            data, _ = self.get_list_data(request, *args, queryset=page, **kwargs)
+            return paginator.get_paginated_response(data)
+        data, status_code = self.get_list_data(request, *args, **kwargs)
+        return Response(data, status=status_code)
+```
+
+**Example: fully custom `get()` using `get_object()` and `get_filtered_queryset()`**
+
+```python
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django_filters.rest_framework import DjangoFilterBackend
+from django_api_mixins import ModelFilterFieldsMixin
+
+class UnitListDetailAPIView(ModelFilterFieldsMixin, APIView):
+    model = Unit
+    serializer_class = UnitSerializer
+    filter_backends = [DjangoFilterBackend]
+
+    def get_queryset(self):
+        return Unit.objects.all()
+
+    def get(self, request, *args, **kwargs):
+        pk = kwargs.get(self.lookup_url_kwarg)
+        if pk is not None:
+            # Detail: use get_object(); returns 404 if not found
+            obj = self.get_object(pk=pk)
+            serializer = self.get_serializer(obj)
+            return Response(serializer.data)
+        # List: use get_filtered_queryset() and serialize
+        queryset = self.get_filtered_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+```
+
+**Example: list + detail without pagination (with Swagger/OpenAPI filter params)**
+
+If you want list and detail in one APIView **without pagination** and you want filter parameters to appear in Swagger/OpenAPI docs, combine `OpenAPIFilterParametersMixin` with `ModelFilterFieldsMixin` and override `get()`:
+
+```python
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django_filters.rest_framework import DjangoFilterBackend
+from django_api_mixins import OpenAPIFilterParametersMixin, ModelFilterFieldsMixin
+
+# Optional: add to Swagger UI tags (requires drf-spectacular)
+# from drf_spectacular.utils import extend_schema
+# @extend_schema(tags=["Examples - ModelFilterFieldsMixin"])
+class UnitListAPIView(OpenAPIFilterParametersMixin, ModelFilterFieldsMixin, APIView):
+    """
+    Plain APIView with ModelFilterFieldsMixin + OpenAPIFilterParametersMixin.
+    List and detail in one view; no pagination. Filter params appear in Swagger.
+    URL example: path('units-api/', UnitListAPIView.as_view(), name='units-api'),
+    """
+    model = Unit
+    serializer_class = UnitSerializer
+    filter_backends = [DjangoFilterBackend]
+    # Optional: set filterset_fields manually; otherwise mixin uses model.get_filter_fields()
+    # filterset_fields = Unit.get_filter_fields()
+
+    def get(self, request, *args, **kwargs):
+        pk = kwargs.get(self.lookup_url_kwarg)
+        if pk is not None:
+            data, status_code = self.get_detail_data(request, *args, **kwargs)
+            return Response(data, status=status_code)
+        queryset = self.get_filtered_queryset()
+        serializer = self.get_serializer_class()(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+```
+
+#### ViewSet / GenericAPIView
+
 ```python
 from rest_framework import viewsets
 from django_filters.rest_framework import DjangoFilterBackend
 from django_api_mixins import ModelFilterFieldsMixin
 
-# ViewSet / GenericAPIView: filter fields come from queryset.model
+# ViewSet / GenericAPIView: set model (filter fields come from model.get_filter_fields())
 class UnitViewSet(ModelFilterFieldsMixin, viewsets.ModelViewSet):
-    queryset = Unit.objects.all()  # Unit must have ModelMixin or get_filter_fields()
+    queryset = Unit.objects.all()
+    model = Unit  # required — Unit must have ModelMixin or get_filter_fields()
     serializer_class = UnitSerializer
     filter_backends = [DjangoFilterBackend]
     # filterset_fields auto-set from Unit.get_filter_fields()
 
-# APIView: set model so the mixin can resolve filter fields
-from rest_framework.views import APIView
-
-class UnitListAPIView(ModelFilterFieldsMixin, APIView):
-    model = Unit  # required for APIView
-    filter_backends = [DjangoFilterBackend]
-    
-    def get_queryset(self):
-        return Unit.objects.all()
-    
-    def get(self, request):
-        queryset = self.filter_queryset(self.get_queryset())
-        # ... rest of your logic
-
 # Optional: use a different model for filter fields than the queryset model
 class MyViewSet(ModelFilterFieldsMixin, viewsets.ModelViewSet):
     queryset = SomeProxy.objects.all()
+    model = Unit  # required
     filterset_model = Unit  # use Unit.get_filter_fields() instead of SomeProxy
     filter_backends = [DjangoFilterBackend]
 ```
 
-**Note**: If `django-filter` is not installed, you'll get a clear error message with installation instructions when you try to use this mixin.
+**Note**: If `django-filter` is not installed, you'll get a clear error message with installation instructions when you try to use this mixin. You can still set `filterset_fields` explicitly on the view to override the auto-generated fields.
 
 ### OpenAPIFilterParametersMixin
 
@@ -202,6 +323,31 @@ class UnitListAPIView(ModelFilterFieldsMixin, APIView):
 ```
 
 **Note**: If `django-filter` or `drf-spectacular` is not installed, you'll get a clear error message with installation instructions when you try to use this mixin.
+
+### APIMixin
+
+Use different serializers for different actions (create, update, list, retrieve):
+
+```python
+from rest_framework import viewsets
+from django_api_mixins import APIMixin
+
+class UserViewSet(APIMixin, viewsets.ModelViewSet):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer  # Default serializer
+    create_serializer_class = UserCreateSerializer  # For POST requests
+    update_serializer_class = UserUpdateSerializer  # For PUT/PATCH requests
+    list_serializer_class = UserListSerializer  # For GET list requests
+    retrieve_serializer_class = UserDetailSerializer  # For GET detail requests
+```
+
+The mixin also automatically handles list data in requests:
+
+```python
+# POST /api/users/
+# Body: [{"name": "User1"}, {"name": "User2"}]
+# Automatically sets many=True for list data
+```
 
 ### RelationshipFilterMixin
 
@@ -336,8 +482,8 @@ You can combine multiple mixins:
 from rest_framework import viewsets
 from django_filters.rest_framework import DjangoFilterBackend
 from django_api_mixins import (
-    APIMixin,
     ModelFilterFieldsMixin,
+    APIMixin,
     RelationshipFilterMixin,
     RoleBasedFilterMixin,
 )
@@ -350,6 +496,7 @@ class OrderViewSet(
     viewsets.ModelViewSet
 ):
     queryset = Order.objects.all()
+    model = Order  # required for ModelFilterFieldsMixin
     serializer_class = OrderSerializer
     create_serializer_class = OrderCreateSerializer
     filter_backends = [DjangoFilterBackend]
@@ -434,4 +581,4 @@ pip install django-api-mixins
 
 **PyPI Project Page**: [https://pypi.org/project/django-api-mixins/](https://pypi.org/project/django-api-mixins/)
 
-**Latest Version**: 0.1.5 (Released: Feb 24, 2026)
+**Latest Version**: 1.0.0 (Released: Feb 24, 2026)
