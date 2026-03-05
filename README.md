@@ -108,11 +108,11 @@ class ProductViewSet(viewsets.ModelViewSet):
 Filter related models:
 
 ```python
-# Get filter fields for a related model
+# Get filter fields for a related model if Product has a ForeignKey to Category
 filter_fields = Product.get_filter_fields_for_related_model('category')
 # Returns: {'category__name': [...], 'category__id': [...], ...}
 
-# Get filter fields for a foreign key field
+# Get filter fields for a foreign key field if Product is a ForeignKey to Order
 filter_fields = Order.get_filter_fields_for_foreign_fields('product')
 # Returns: {'product__name': [...], 'product__price': [...], ...}
 ```
