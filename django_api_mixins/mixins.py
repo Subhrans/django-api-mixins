@@ -232,6 +232,7 @@ class RoleBasedFilterMixin:
 class ModelFilterFieldsMixin:
     """
     View mixin that requires `filterset_fields` to be defined on the view for filtering.
+    Optionally supports search via `search_fields` (adds DRF SearchFilter; use ?search=...).
 
     **Requires**: `django-filter` package and that the view defines `filterset_fields`, e.g.:
         filterset_fields = ["id", "name"]
@@ -267,6 +268,7 @@ class ModelFilterFieldsMixin:
             queryset = Unit.objects.all()
             serializer_class = UnitSerializer
             filterset_fields = ["id", "name"]
+            search_fields = ["name", "description"]  # optional: enables ?search=...
 
         class UnitAPIView(ModelFilterFieldsMixin, APIView):
             model = Unit
@@ -280,6 +282,7 @@ class ModelFilterFieldsMixin:
     lookup_url_kwarg = "pk"
     lookup_field = "pk"
     detail_not_found_message = "Not found"
+    search_fields = None  # optional: list of field names for search (e.g. ["name", "description"]); enables ?search=...
 
     def _resolve_model(self, queryset=None):
         """
@@ -335,6 +338,14 @@ class ModelFilterFieldsMixin:
                 queryset = model.objects.all()
         return queryset
 
+    def get_search_fields(self):
+        """
+        Return the list of field names to use for search. Override in subclasses for dynamic behavior.
+        When non-empty, SearchFilter is added to filter backends and ?search=... is applied.
+        """
+        fields = getattr(self, "search_fields", None)
+        return fields if fields is not None else []
+
     def get_filter_backends(self):
         """Return the list of filter backend classes. For APIView; GenericAPIView overrides this."""
         # Ensure django-filter is available
@@ -348,7 +359,13 @@ class ModelFilterFieldsMixin:
                 "Or install with optional dependencies: pip install django-api-mixins[filters]"
             )
         from rest_framework.settings import api_settings
-        return getattr(self, "filter_backends", None) or api_settings.DEFAULT_FILTER_BACKENDS or []
+        backends = getattr(self, "filter_backends", None) or api_settings.DEFAULT_FILTER_BACKENDS or []
+        backends = list(backends)
+        if self.get_search_fields():
+            from rest_framework.filters import SearchFilter
+            if SearchFilter not in backends:
+                backends.append(SearchFilter)
+        return backends
 
     def filter_queryset(self, queryset):
         """Apply filter backends to the queryset. For APIView; GenericAPIView overrides this."""
