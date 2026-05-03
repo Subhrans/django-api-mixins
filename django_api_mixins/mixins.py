@@ -1,4 +1,5 @@
 from copy import deepcopy
+from typing import Optional
 
 from django.db.models import (
     BooleanField,
@@ -859,8 +860,28 @@ class APIMixin:
     update_serializer_class = None
     retrieve_serializer_class = None
     list_serializer_class = None
+    def _resolve_action(self) -> Optional[str]:
+        action = getattr(self, "action", None)
+        if action:
+            return action
+
+        request = getattr(self, "request", None)
+        method = getattr(request, "method", "").upper()
+        has_pk = bool(getattr(self, "kwargs", {}).get("pk"))
+        method_map = {
+            "POST": "create",
+            "PUT": "update",
+            "PATCH": "partial_update",
+            "DELETE": "destroy",
+        }
+
+        if method == "GET":
+            return "retrieve" if has_pk else "list"
+
+        return method_map.get(method)
 
     def get_serializer_class(self):
+        self.action = self._resolve_action()
         serializer_class = super().get_serializer_class()
         if self.action == "create" and getattr(self, "create_serializer_class"):
             return self.create_serializer_class
