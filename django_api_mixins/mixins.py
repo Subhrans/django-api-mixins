@@ -893,7 +893,20 @@ class APIMixin:
             return self.retrieve_serializer_class
         return serializer_class
 
+
+    def get_serializer_context(self):
+        return {
+            "request": getattr(self, "request", None),
+            "format": getattr(self, "format_kwarg", None),
+            "view": self,
+        }
+
     def get_serializer(self, *args, **kwargs):
         if isinstance(self.request.data, list):
             kwargs["many"] = True
-        return super().get_serializer(*args, **kwargs)
+        try:
+           return super().get_serializer(*args, **kwargs)
+        except AttributeError:
+            kwargs.setdefault("context", self.get_serializer_context())
+            serializer_class = self.get_serializer_class()
+            return serializer_class(*args, **kwargs)
