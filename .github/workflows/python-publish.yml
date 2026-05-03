@@ -1,4 +1,4 @@
-# This workflow will upload a Python Package to PyPI when you push a tag from main
+# This workflow will upload a Python Package to PyPI when you push a tag from the default branch
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python#publishing-to-package-registries
 
 # This workflow uses actions that are not certified by GitHub.
@@ -25,10 +25,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure tag is on main
+      - name: Ensure tag is on default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          git fetch origin main
-          git merge-base --is-ancestor $GITHUB_SHA origin/main || (echo "Tag must point to a commit on main" && exit 1)
+          git fetch origin $DEFAULT_BRANCH
+          git merge-base --is-ancestor $GITHUB_SHA origin/$DEFAULT_BRANCH || (echo "Tag must point to a commit on $DEFAULT_BRANCH" && exit 1)
 
       - uses: actions/setup-python@v5
         with:

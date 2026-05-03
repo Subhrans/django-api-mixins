@@ -581,4 +581,4 @@ pip install django-api-mixins
 
 **PyPI Project Page**: [https://pypi.org/project/django-api-mixins/](https://pypi.org/project/django-api-mixins/)
 
-**Latest Version**: 1.0.2 (Released: Mar 05, 2026)
+**Latest Version**: 1.0.3 (Released: May 03, 2026)
