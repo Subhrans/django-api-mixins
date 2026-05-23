@@ -9,3 +9,4 @@ class FieldLookup(Enum):
     GTE = "gte"
     LTE = "lte"
     IN = "in"
+    NOT_IN = "not_in"

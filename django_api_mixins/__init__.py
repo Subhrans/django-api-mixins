@@ -3,7 +3,7 @@ Django REST Framework API Mixins
 
 A collection of useful mixins for Django REST Framework ViewSets and APIViews.
 """
-
+from .filter_backends import NotInFilterBackend
 from .mixins import (
     APIMixin,
     ModelMixin,
@@ -14,7 +14,7 @@ from .mixins import (
 )
 from .lookups import FieldLookup
 
-__version__ = "1.0.4"
+__version__ = "2.0.0"
 __all__ = [
     "APIMixin",
     "ModelMixin",
@@ -23,4 +23,5 @@ __all__ = [
     "RelationshipFilterMixin",
     "RoleBasedFilterMixin",
     "FieldLookup",
+    "NotInFilterBackend",
 ]
