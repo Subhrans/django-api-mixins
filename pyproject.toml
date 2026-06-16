@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-api-mixins"
-version = "2.0.1"
+version = "2.0.2"
 description = "Django REST Framework mixins for ViewSets and APIViews - APIMixin, ModelMixin, RelationshipFilterMixin, RoleBasedFilterMixin. Simplify Django API development with reusable mixins."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -73,7 +73,7 @@ Repository = "https://github.com/Subhrans/django-api-mixins"
 Issues = "https://github.com/subhrans/django-api-mixins/issues"
 
 [tool.setuptools]
-packages = ["django_api_mixins"]
+packages = ["django_api_mixins", "django_api_mixins.filter_backends"]
 # Avoid License-File in METADATA (PEP 639); PyPI/twine may reject it. We use license = {text = "MIT"} instead.
 license-files = []
 
