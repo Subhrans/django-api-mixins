@@ -1,4 +1,4 @@
-from django_api_mixins import FieldLookup
+from ..lookups import FieldLookup
 
 try:
     from django_filters.rest_framework import DjangoFilterBackend
